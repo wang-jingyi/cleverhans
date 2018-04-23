@@ -170,6 +170,10 @@ def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
     adv = cw.generate_np(adv_inputs,
                          **cw_params)
 
+
+    img_list = adv
+
+
     eval_params = {'batch_size': np.minimum(nb_classes, source_samples)}
     if targeted:
         adv_accuracy = model_eval(
@@ -205,6 +209,9 @@ def mnist_tutorial_cw(train_start=0, train_end=60000, test_start=0,
     percent_perturbed = np.mean(np.sum((adv - adv_inputs)**2,
                                        axis=(1, 2, 3))**.5)
     print('Avg. L_2 norm of perturbations {0:.4f}'.format(percent_perturbed))
+
+
+
 
     # Close TF session
     sess.close()

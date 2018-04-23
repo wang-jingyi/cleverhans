@@ -14,6 +14,13 @@ from six.moves import xrange
 import tensorflow as tf
 from tensorflow.python.platform import flags
 import logging
+from scipy.misc import imsave
+
+import os
+
+from MNIST_mine import utils
+from MNIST_mine.gen_mutation import MutationTest
+# from utils import deprocess_mnist_image
 
 from cleverhans.attacks import SaliencyMapMethod
 from cleverhans.utils import other_classes, set_log_level
@@ -79,8 +86,17 @@ def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
     ###########################################################################
     # Training the model using TensorFlow
     ###########################################################################
+    # save_file = './MNIST_trained_model_jsma'
+    # saver = tf.train.Saver()
 
-    # Train an MNIST model
+    # if os.path.exists('./MNIST_trained_model_jsma.meta'):
+    #     # Restore the trained model
+    #     print('Restore trained model ...')
+    #     new_saver = tf.train.import_meta_graph('./MNIST_trained_model_jsma.meta')
+    #     new_saver.restore(sess, tf.train.latest_checkpoint('./'))
+    #
+    # else:
+        # Train an MNIST model
     train_params = {
         'nb_epochs': nb_epochs,
         'batch_size': batch_size,
@@ -90,6 +106,10 @@ def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
     rng = np.random.RandomState([2017, 8, 30])
     model_train(sess, x, y, preds, X_train, Y_train, args=train_params,
                 rng=rng)
+
+    # Save the trained model to avoid retrain
+    # saver.save(sess, save_file)
+    # print('Trained model saved to MNIST_trained_model_jsma.ckpt ...')
 
     # Evaluate the accuracy of the MNIST model on legitimate test examples
     eval_params = {'batch_size': batch_size}
@@ -121,6 +141,7 @@ def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
                    'y_target': None}
 
     figure = None
+
     # Loop over the samples we want to perturb into adversarial examples
     for sample_ind in xrange(0, source_samples):
         print('--------------------------------------')
@@ -137,6 +158,9 @@ def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
             sample, (img_rows, img_cols, channels))
 
         # Loop over all target classes
+        store_path = './adv_jsma'
+        if not os.path.exists(store_path):
+            os.makedirs(store_path)
         for target in target_classes:
             print('Generating adv. example for target class %i' % target)
 
@@ -147,55 +171,110 @@ def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
             adv_x = jsma.generate_np(sample, **jsma_params)
 
             # Check if success was achieved
-            res = int(model_argmax(sess, x, preds, adv_x) == target)
+            new_class_label = model_argmax(sess, x, preds, adv_x) # Predicted class of the generated adversary
+            res = int(new_class_label == target)
 
-            # Computer number of modified features
-            adv_x_reshape = adv_x.reshape(-1)
-            test_in_reshape = X_test[sample_ind].reshape(-1)
-            nb_changed = np.where(adv_x_reshape != test_in_reshape)[0].shape[0]
-            percent_perturb = float(nb_changed) / adv_x.reshape(-1).shape[0]
+            if res==1:
+                adv_img_deprocessed = utils.deprocess_image(adv_x)
+                imsave(store_path + '/adv_' + str(current_class) + '_' + str(new_class_label) + '_.png', adv_img_deprocessed)
 
-            # Display the original and adversarial images side-by-side
-            if viz_enabled:
-                figure = pair_visual(
-                    np.reshape(sample, (img_rows, img_cols)),
-                    np.reshape(adv_x, (img_rows, img_cols)), figure)
-
-            # Add our adversarial example to our grid data
-            grid_viz_data[target, current_class, :, :, :] = np.reshape(
-                adv_x, (img_rows, img_cols, channels))
-
-            # Update the arrays for later analysis
-            results[target, sample_ind] = res
-            perturbations[target, sample_ind] = percent_perturb
+            # # Computer number of modified features
+            # adv_x_reshape = adv_x.reshape(-1)
+            # test_in_reshape = X_test[sample_ind].reshape(-1)
+            # nb_changed = np.where(adv_x_reshape != test_in_reshape)[0].shape[0]
+            # percent_perturb = float(nb_changed) / adv_x.reshape(-1).shape[0]
+            #
+            # # Display the original and adversarial images side-by-side
+            #
+            #
+            # if viz_enabled:
+            #     figure = pair_visual(
+            #         np.reshape(sample, (img_rows, img_cols)),
+            #         np.reshape(adv_x, (img_rows, img_cols)), figure)
+            #
+            # # Add our adversarial example to our grid data
+            # grid_viz_data[target, current_class, :, :, :] = np.reshape(
+            #     adv_x, (img_rows, img_cols, channels))
+            #
+            # # Update the arrays for later analysis
+            # results[target, sample_ind] = res
+            # perturbations[target, sample_ind] = percent_perturb
 
     print('--------------------------------------')
 
-    # Compute the number of adversarial examples that were successfully found
-    nb_targets_tried = ((nb_classes - 1) * source_samples)
-    succ_rate = float(np.sum(results)) / nb_targets_tried
-    print('Avg. rate of successful adv. examples {0:.4f}'.format(succ_rate))
-    report.clean_train_adv_eval = 1. - succ_rate
+    # Generate random matution matrix for mutations
 
-    # Compute the average distortion introduced by the algorithm
-    percent_perturbed = np.mean(perturbations)
-    print('Avg. rate of perturbed features {0:.4f}'.format(percent_perturbed))
+    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test('/Users/jingyi/cleverhans-master/cleverhans_tutorials/adv_jsma')
+    img_rows = 28
+    img_cols = 28
+    seed_number = len(predicted_labels)
+    mutation_number = 1000
 
-    # Compute the average distortion introduced for successful samples only
-    percent_perturb_succ = np.mean(perturbations * (results == 1))
-    print('Avg. rate of perturbed features for successful '
-          'adversarial examples {0:.4f}'.format(percent_perturb_succ))
+    for step_size in [1,5,10]:
+
+        mutation_test = MutationTest(img_rows, img_cols, step_size, seed_number, mutation_number)
+
+        mutations = []
+        for i in range(mutation_number):
+            mutation = mutation_test.mutation_matrix()
+            mutations.append(mutation)
+
+        label_change_numbers = []
+        # Iterate over all the test data
+        for i in range(len(predicted_labels)):
+            ori_img = np.expand_dims(image_list[i], axis=2)
+            orig_label = predicted_labels[i]
+
+            label_changes = 0
+            for j in range(mutation_test.mutation_number):
+                img = ori_img.copy()
+                add_mutation = mutations[j][0]
+                mu_img = img + add_mutation
+
+                # Predict the label for the mutation
+                mu_img = np.expand_dims(mu_img, 0)
+                # print(mu_img.shape)
+                # Define input placeholder
+                # input_x = tf.placeholder(tf.float32, shape=(None, 28, 28, 1))
+
+                mu_label = model_argmax(sess, x, preds, mu_img)
+                # print('Predicted label: ', mu_label)
+
+                if mu_label != orig_label:
+                    label_changes += 1
+
+            label_change_numbers.append(label_changes)
+
+        print('Number of label changes for step size: ' + str(step_size)+ ', '+ str(label_change_numbers))
+
+    # # Compute the number of adversarial examples that were successfully found
+    # nb_targets_tried = ((nb_classes - 1) * source_samples)
+    # succ_rate = float(np.sum(results)) / nb_targets_tried
+    # print('Avg. rate of successful adv. examples {0:.4f}'.format(succ_rate))
+    # report.clean_train_adv_eval = 1. - succ_rate
+    #
+    # # Compute the average distortion introduced by the algorithm
+    # percent_perturbed = np.mean(perturbations)
+    # print('Avg. rate of perturbed features {0:.4f}'.format(percent_perturbed))
+    #
+    # # Compute the average distortion introduced for successful samples only
+    # percent_perturb_succ = np.mean(perturbations * (results == 1))
+    # print('Avg. rate of perturbed features for successful '
+    #       'adversarial examples {0:.4f}'.format(percent_perturb_succ))
 
     # Close TF session
     sess.close()
+    print('Finish generating adversaries.')
 
     # Finally, block & display a grid of all the adversarial examples
-    if viz_enabled:
-        import matplotlib.pyplot as plt
-        plt.close(figure)
-        _ = grid_visual(grid_viz_data)
+    # if viz_enabled:
+    #     import matplotlib.pyplot as plt
+    #     plt.close(figure)
+    #     _ = grid_visual(grid_viz_data)
 
     return report
+
+
 
 
 def main(argv=None):
@@ -205,6 +284,9 @@ def main(argv=None):
                         nb_classes=FLAGS.nb_classes,
                         source_samples=FLAGS.source_samples,
                         learning_rate=FLAGS.learning_rate)
+
+
+
 
 
 if __name__ == '__main__':

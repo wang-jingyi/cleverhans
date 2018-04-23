@@ -32,8 +32,7 @@ from cleverhans_tutorials.tutorial_models import make_basic_cnn
 
 FLAGS = flags.FLAGS
 
-
-def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
+def mnist_tutorial_jsma(trained = True, train_start=0, train_end=60000, test_start=0,
                         test_end=10000, viz_enabled=True, nb_epochs=6,
                         batch_size=128, nb_classes=10, source_samples=10,
                         learning_rate=0.001):
@@ -100,12 +99,20 @@ def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
     train_params = {
         'nb_epochs': nb_epochs,
         'batch_size': batch_size,
-        'learning_rate': learning_rate
+        'learning_rate': learning_rate,
+        'train_dir': 'model',
+        'filename': 'jsma.model'
     }
-    sess.run(tf.global_variables_initializer())
-    rng = np.random.RandomState([2017, 8, 30])
-    model_train(sess, x, y, preds, X_train, Y_train, args=train_params,
-                rng=rng)
+    if trained:
+        saver = tf.train.Saver()
+        saver.restore(
+            sess, os.path.join(
+                train_params['train_dir'], train_params['filename']))
+    else:
+        sess.run(tf.global_variables_initializer())
+        rng = np.random.RandomState([2017, 8, 30])
+        model_train(sess, x, y, preds, X_train, Y_train, args=train_params,
+                    rng=rng,save=True)
 
     # Save the trained model to avoid retrain
     # saver.save(sess, save_file)
@@ -278,7 +285,8 @@ def mnist_tutorial_jsma(train_start=0, train_end=60000, test_start=0,
 
 
 def main(argv=None):
-    mnist_tutorial_jsma(viz_enabled=FLAGS.viz_enabled,
+    mnist_tutorial_jsma(trained = FLAGS.trained,
+                        viz_enabled=FLAGS.viz_enabled,
                         nb_epochs=FLAGS.nb_epochs,
                         batch_size=FLAGS.batch_size,
                         nb_classes=FLAGS.nb_classes,
@@ -290,6 +298,7 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
+    flags.DEFINE_boolean('trained', False, 'The model is already trained.')
     flags.DEFINE_boolean('viz_enabled', True, 'Visualize adversarial ex.')
     flags.DEFINE_integer('nb_epochs', 6, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')

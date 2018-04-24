@@ -17,6 +17,8 @@ import logging
 from scipy.misc import imsave
 
 import os
+import sys
+sys.path.append('/Users/pxzhang/Documents/SUTD/project/deepxplore')
 
 from MNIST_mine import utils
 from MNIST_mine.gen_mutation import MutationTest
@@ -211,32 +213,33 @@ def mnist_tutorial_jsma(trained = True, train_start=0, train_end=60000, test_sta
 
     # Generate random matution matrix for mutations
 
-    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test('/Users/jingyi/cleverhans-master/cleverhans_tutorials/adv_jsma')
+    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test('/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/adv_jsma')
     img_rows = 28
     img_cols = 28
     seed_number = len(predicted_labels)
     mutation_number = 1000
 
+    mutation_test = MutationTest(img_rows, img_cols, seed_number, mutation_number)
+    mutations = []
+    for i in range(mutation_number):
+        mutation = mutation_test.mutation_matrix()
+        mutations.append(mutation)
+
     for step_size in [1,5,10]:
-
-        mutation_test = MutationTest(img_rows, img_cols, step_size, seed_number, mutation_number)
-
-        mutations = []
-        for i in range(mutation_number):
-            mutation = mutation_test.mutation_matrix()
-            mutations.append(mutation)
 
         label_change_numbers = []
         # Iterate over all the test data
         for i in range(len(predicted_labels)):
             ori_img = np.expand_dims(image_list[i], axis=2)
+            ori_img = ori_img.astype('float32')
+            ori_img /= 255
             orig_label = predicted_labels[i]
 
             label_changes = 0
             for j in range(mutation_test.mutation_number):
                 img = ori_img.copy()
                 add_mutation = mutations[j][0]
-                mu_img = img + add_mutation
+                mu_img = img + add_mutation * step_size
 
                 # Predict the label for the mutation
                 mu_img = np.expand_dims(mu_img, 0)
@@ -298,7 +301,7 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    flags.DEFINE_boolean('trained', False, 'The model is already trained.')
+    flags.DEFINE_boolean('trained', True, 'The model is already trained.')  #default:False
     flags.DEFINE_boolean('viz_enabled', True, 'Visualize adversarial ex.')
     flags.DEFINE_integer('nb_epochs', 6, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')

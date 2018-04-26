@@ -145,13 +145,13 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
         preds_adv = model.get_probs(adv_x)
 
         index = random.randint(test_start, test_end - attack_num)
-        adv= sess.run(adv_x,feed_dict={x: X_test[index: index + 100], y: Y_test[index: index + 100]})
+        adv= sess.run(adv_x,feed_dict={x: X_test[index: index + attack_num], y: Y_test[index: index + attack_num]})
 
         store_path = './adv_fgsm1'
         if not os.path.exists(store_path):
             os.makedirs(store_path)
 
-        labels = np.argmax(Y_test[index: index + 100], axis=1)
+        labels = np.argmax(Y_test[index: index + attack_num], axis=1)
         new_class_labels = model_argmax(sess, x, preds, adv)
         for i in range(len(adv)):
             if labels[i] != new_class_labels[i]:
@@ -260,7 +260,7 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
                    predictions_adv=preds_2_adv, evaluate=evaluate_2,
                     args=train_params, rng=rng,save=True)
 
-    adv2 = sess.run(adv_x_2, feed_dict={x: X_test[index: index + 100], y: Y_test[index: index + 100]})
+    adv2 = sess.run(adv_x_2, feed_dict={x: X_test[index: index + attack_num], y: Y_test[index: index + attack_num]})
 
     store_path = './adv_fgsm2'
     if not os.path.exists(store_path):

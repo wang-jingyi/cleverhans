@@ -16,10 +16,19 @@ import logging
 import tensorflow as tf
 from tensorflow.python.platform import flags
 
+import os
+import sys
+sys.path.append('/Users/pxzhang/Documents/SUTD/project/deepxplore')
+import random
+from scipy.misc import imsave
+
+from MNIST_mine import utils
+from MNIST_mine.gen_mutation import MutationTest
+
 from cleverhans.utils_mnist import data_mnist
 from cleverhans.utils import to_categorical
 from cleverhans.utils import set_log_level
-from cleverhans.utils_tf import model_train, model_eval, batch_eval
+from cleverhans.utils_tf import model_train, model_eval, batch_eval, model_argmax
 from cleverhans.attacks import FastGradientMethod
 from cleverhans.attacks_tf import jacobian_graph, jacobian_augmentation
 
@@ -42,7 +51,7 @@ def setup_tutorial():
     return True
 
 
-def prep_bbox(sess, x, y, X_train, Y_train, X_test, Y_test,
+def prep_bbox(trained, sess, x, y, X_train, Y_train, X_test, Y_test,
               nb_epochs, batch_size, learning_rate,
               rng):
     """
@@ -71,10 +80,19 @@ def prep_bbox(sess, x, y, X_train, Y_train, X_test, Y_test,
     train_params = {
         'nb_epochs': nb_epochs,
         'batch_size': batch_size,
-        'learning_rate': learning_rate
+        'learning_rate': learning_rate,
+        'train_dir': 'model',
+        'filename': 'blackbox.model'
     }
-    model_train(sess, x, y, predictions, X_train, Y_train,
-                args=train_params, rng=rng)
+
+    if trained:
+        saver = tf.train.Saver()
+        saver.restore(
+            sess, os.path.join(
+                train_params['train_dir'], train_params['filename']))
+    else:
+        model_train(sess, x, y, predictions, X_train, Y_train,
+                    args=train_params, rng=rng, save=True)
 
     # Print out the accuracy on legitimate data
     eval_params = {'batch_size': batch_size}
@@ -109,7 +127,7 @@ def substitute_model(img_rows=28, img_cols=28, nb_classes=10):
     return MLP(layers, input_shape)
 
 
-def train_sub(sess, x, y, bbox_preds, X_sub, Y_sub, nb_classes,
+def train_sub(trained, sess, x, y, bbox_preds, X_sub, Y_sub, nb_classes,
               nb_epochs_s, batch_size, learning_rate, data_aug, lmbda,
               rng):
     """
@@ -144,12 +162,20 @@ def train_sub(sess, x, y, bbox_preds, X_sub, Y_sub, nb_classes,
         train_params = {
             'nb_epochs': nb_epochs_s,
             'batch_size': batch_size,
-            'learning_rate': learning_rate
+            'learning_rate': learning_rate,
+            'train_dir': 'model',
+            'filename': 'substitute.model'
         }
         with TemporaryLogLevel(logging.WARNING, "cleverhans.utils.tf"):
-            model_train(sess, x, y, preds_sub, X_sub,
-                        to_categorical(Y_sub, nb_classes),
-                        init_all=False, args=train_params, rng=rng)
+            if trained:
+                saver = tf.train.Saver()
+                saver.restore(
+                    sess, os.path.join(
+                        train_params['train_dir'], train_params['filename']))
+            else:
+                model_train(sess, x, y, preds_sub, X_sub,
+                            to_categorical(Y_sub, nb_classes),
+                            init_all=False, args=train_params, rng=rng, save=True)
 
         # If we are not at last substitute training iteration, augment dataset
         if rho < data_aug - 1:
@@ -174,10 +200,11 @@ def train_sub(sess, x, y, bbox_preds, X_sub, Y_sub, nb_classes,
     return model_sub, preds_sub
 
 
-def mnist_blackbox(train_start=0, train_end=60000, test_start=0,
+def mnist_blackbox(trained = True, train_start=0, train_end=60000, test_start=0,
                    test_end=10000, nb_classes=10, batch_size=128,
                    learning_rate=0.001, nb_epochs=10, holdout=150, data_aug=6,
-                   nb_epochs_s=10, lmbda=0.1):
+                   nb_epochs_s=10, lmbda=0.1,
+                   attack_num=100):
     """
     MNIST tutorial for the black-box attack from arxiv.org/abs/1602.02697
     :param train_start: index of first training set example
@@ -227,14 +254,14 @@ def mnist_blackbox(train_start=0, train_end=60000, test_start=0,
     # Simulate the black-box model locally
     # You could replace this by a remote labeling API for instance
     print("Preparing the black-box model.")
-    prep_bbox_out = prep_bbox(sess, x, y, X_train, Y_train, X_test, Y_test,
+    prep_bbox_out = prep_bbox(trained, sess, x, y, X_train, Y_train, X_test, Y_test,
                               nb_epochs, batch_size, learning_rate,
                               rng=rng)
     model, bbox_preds, accuracies['bbox'] = prep_bbox_out
 
     # Train substitute using method from https://arxiv.org/abs/1602.02697
     print("Training the substitute model.")
-    train_sub_out = train_sub(sess, x, y, bbox_preds, X_sub, Y_sub,
+    train_sub_out = train_sub(trained, sess, x, y, bbox_preds, X_sub, Y_sub,
                               nb_classes, nb_epochs_s, batch_size,
                               learning_rate, data_aug, lmbda, rng=rng)
     model_sub, preds_sub = train_sub_out
@@ -252,6 +279,67 @@ def mnist_blackbox(train_start=0, train_end=60000, test_start=0,
     eval_params = {'batch_size': batch_size}
     x_adv_sub = fgsm.generate(x, **fgsm_par)
 
+    index = random.randint(0, len(Y_test) - attack_num)
+    adv = sess.run(x_adv_sub, feed_dict={x: X_test[index: index + attack_num], y: Y_test[index: index + attack_num]})
+
+    store_path = './adv_blackbox'
+    if not os.path.exists(store_path):
+        os.makedirs(store_path)
+
+    labels = np.argmax(Y_test[index: index + attack_num], axis=1)
+    new_class_labels = model_argmax(sess, x, model(x), adv)
+    for i in range(len(adv)):
+        if labels[i] != new_class_labels[i]:
+            adv_img_deprocessed = utils.deprocess_image(np.asarray([adv[i]]))
+            imsave(store_path + '/' + str(i) + 'adv_' + str(labels[i]) + '_' + str(
+                new_class_labels[i]) + '_.png', adv_img_deprocessed)
+
+    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test(
+        '/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/adv_blackbox')
+    img_rows = 28
+    img_cols = 28
+    seed_number = len(predicted_labels)
+    mutation_number = 1000
+
+    mutation_test = MutationTest(img_rows, img_cols, seed_number, mutation_number)
+    mutations = []
+    for i in range(mutation_number):
+        mutation = mutation_test.mutation_matrix()
+        mutations.append(mutation)
+
+    for step_size in [1, 5, 10]:
+
+        label_change_numbers = []
+        # Iterate over all the test data
+        for i in range(len(predicted_labels)):
+            ori_img = np.expand_dims(image_list[i], axis=2)
+            ori_img = ori_img.astype('float32')
+            ori_img /= 255
+            orig_label = predicted_labels[i]
+
+            label_changes = 0
+            for j in range(mutation_test.mutation_number):
+                img = ori_img.copy()
+                add_mutation = mutations[j][0]
+                mu_img = img + add_mutation * step_size
+
+                # Predict the label for the mutation
+                mu_img = np.expand_dims(mu_img, 0)
+                # print(mu_img.shape)
+                # Define input placeholder
+                # input_x = tf.placeholder(tf.float32, shape=(None, 28, 28, 1))
+
+                mu_label = model_argmax(sess, x, model(x), mu_img)
+                # print('Predicted label: ', mu_label)
+
+                if mu_label != orig_label:
+                    label_changes += 1
+
+            label_change_numbers.append(label_changes)
+
+        print('Number of label changes for step size: ' + str(step_size) + ', ' + str(label_change_numbers))
+
+
     # Evaluate the accuracy of the "black-box" model on adversarial examples
     accuracy = model_eval(sess, x, y, model(x_adv_sub), X_test, Y_test,
                           args=eval_params)
@@ -263,7 +351,9 @@ def mnist_blackbox(train_start=0, train_end=60000, test_start=0,
 
 
 def main(argv=None):
-    mnist_blackbox(nb_classes=FLAGS.nb_classes, batch_size=FLAGS.batch_size,
+    mnist_blackbox(trained = FLAGS.trained,
+                   attack_num=FLAGS.attack_num,
+                   nb_classes=FLAGS.nb_classes, batch_size=FLAGS.batch_size,
                    learning_rate=FLAGS.learning_rate,
                    nb_epochs=FLAGS.nb_epochs, holdout=FLAGS.holdout,
                    data_aug=FLAGS.data_aug, nb_epochs_s=FLAGS.nb_epochs_s,
@@ -272,6 +362,8 @@ def main(argv=None):
 
 if __name__ == '__main__':
     # General flags
+    flags.DEFINE_boolean('trained', False, 'The model is already trained.')  # default:False
+    flags.DEFINE_integer('attack_num', 100, 'The number of original data to attack.')
     flags.DEFINE_integer('nb_classes', 10, 'Number of classes in problem')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')
     flags.DEFINE_float('learning_rate', 0.001, 'Learning rate for training')

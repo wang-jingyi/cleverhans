@@ -45,7 +45,7 @@ def data_cifar10(datadir='./cifar10/', train_start=0, train_end=50000, test_star
         labels = dict.get(b'labels')
         fn_train = fn_train + dict.get(b'filenames')
         for j in range(len(datas)):
-            X_train.append(x_process(datas[j]))
+            X_train.append(preprocess_image(x_process(datas[j]).astype('float64')))
             Y_train.append(y_one_hot(labels[j]))
 
     # test dataset
@@ -54,7 +54,7 @@ def data_cifar10(datadir='./cifar10/', train_start=0, train_end=50000, test_star
     labels = dict.get(b'labels')
     fn_test = fn_test + dict.get(b'filenames')
     for j in range(len(datas)):
-        X_test.append(x_process(datas[j]))
+        X_test.append(preprocess_image(x_process(datas[j]).astype('float64')))
         Y_test.append(y_one_hot(labels[j]))
 
     X_train = np.asarray(X_train[train_start:train_end])
@@ -68,6 +68,27 @@ def data_cifar10(datadir='./cifar10/', train_start=0, train_end=50000, test_star
     print('X_test shape:', X_test.shape)
 
     return X_train, Y_train, fn_train, X_test, Y_test, fn_test
+
+def preprocess_image(x):
+    # Remove zero-center by mean pixel
+    x[:, :, 0] -= 103.939
+    x[:, :, 1] -= 116.779
+    x[:, :, 2] -= 123.68
+    # 'RGB'->'BGR'
+    x = x[:, :, ::-1]
+    x = x.astype('float32')
+    return x
+
+def deprocess_image(x):
+    x = x.reshape((32, 32, 3))
+    # Remove zero-center by mean pixel
+    x[:, :, 0] += 103.939
+    x[:, :, 1] += 116.779
+    x[:, :, 2] += 123.68
+    # 'BGR'->'RGB'
+    x = x[:, :, ::-1]
+    x = np.clip(x, 0, 255).astype('uint8')
+    return x
 
 
 

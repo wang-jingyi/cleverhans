@@ -106,6 +106,25 @@ class Conv2D(Layer):
         return tf.nn.conv2d(x, self.kernels, (1,) + tuple(self.strides) + (1,),
                             self.padding) + self.b
 
+class Pooling(Layer):
+
+    def __init__(self, ksize, strides, padding):
+        self.__dict__.update(locals())
+        del self.self
+
+    def set_input_shape(self, input_shape):
+        self.input_shape = input_shape
+        batch_size, rows, cols, input_channels = input_shape
+        input_shape = list(input_shape)
+        input_shape[0] = 1
+        dummy_batch = tf.zeros(input_shape)
+        dummy_output = self.fprop(dummy_batch)
+        output_shape = [int(e) for e in dummy_output.get_shape()]
+        output_shape[0] = batch_size
+        self.output_shape = tuple(output_shape)
+
+    def fprop(self, x):
+        return tf.nn.max_pool(x, (1,) + tuple(self.ksize) + (1,), (1,) + tuple(self.strides) + (1,), self.padding)
 
 class ReLU(Layer):
 
@@ -165,17 +184,28 @@ def make_basic_cnn(nb_filters=64, nb_classes=10,
     model = MLP(layers, input_shape)
     return model
 
-def make_basic_cnn3(nb_filters=64, nb_classes=10,
+def make_basic_cnn1(nb_filters=64, nb_classes=10,
                    input_shape=(None, 32, 32, 3)):
-    layers = [Conv2D(nb_filters, (8, 8), (2, 2), "SAME"),
+    layers = [Conv2D(int(nb_filters/2), (5, 5), (1, 1), "SAME"),
               ReLU(),
-              Conv2D(nb_filters * 2, (6, 6), (2, 2), "VALID"),
+              Pooling((2, 2), (2, 2), "SAME"),
+              Conv2D(nb_filters, (5, 5), (1, 1), "SAME"),
               ReLU(),
-              Conv2D(nb_filters * 2, (5, 5), (1, 1), "VALID"),
-              ReLU(),
+              Pooling((2, 2), (2, 2), "SAME"),
               Flatten(),
+              Linear(1024),
+              ReLU(),
               Linear(nb_classes),
               Softmax()]
+    # layers = [Conv2D(nb_filters, (8, 8), (2, 2), "SAME"),
+    #           ReLU(),
+    #           Conv2D(nb_filters * 2, (6, 6), (2, 2), "VALID"),
+    #           ReLU(),
+    #           Conv2D(nb_filters * 2, (5, 5), (1, 1), "VALID"),
+    #           ReLU(),
+    #           Flatten(),
+    #           Linear(nb_classes),
+    #           Softmax()]
 
     model = MLP(layers, input_shape)
     return model

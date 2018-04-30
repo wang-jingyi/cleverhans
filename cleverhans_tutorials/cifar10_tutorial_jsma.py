@@ -27,10 +27,10 @@ from MNIST_mine.gen_mutation import MutationTest
 from cleverhans.attacks import SaliencyMapMethod
 from cleverhans.utils import other_classes, set_log_level
 from cleverhans.utils import pair_visual, grid_visual, AccuracyReport
-from cleverhans.utils_cifar10 import data_cifar10, deprocess_image
+from cleverhans.utils_cifar10 import data_cifar10, deprocess_image, preprocess_image
 from cleverhans.utils_tf import model_train, model_eval, model_argmax
 from cleverhans.utils_keras import KerasModelWrapper, cnn_model
-from cleverhans_tutorials.tutorial_models import make_basic_cnn3
+from cleverhans_tutorials.tutorial_models import make_basic_cnn_cifar10
 
 FLAGS = flags.FLAGS
 
@@ -80,7 +80,7 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
     y = tf.placeholder(tf.float32, shape=(None, 10))
 
     # Define TF model graph
-    model = make_basic_cnn3()
+    model = make_basic_cnn_cifar10()
     preds = model(x)
     print("Defined TensorFlow model graph.")
 
@@ -157,6 +157,8 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
         print('Attacking input %i/%i' % (sample_ind + 1, source_samples))
         sample = X_test[sample_ind:(sample_ind+1)]
 
+        label = model_argmax(sess, x, preds, sample)
+
         # We want to find an adversarial example for each possible target class
         # (i.e. all classes that differ from the label given in the dataset)
         current_class = int(np.argmax(Y_test[sample_ind]))
@@ -183,9 +185,9 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
             new_class_label = model_argmax(sess, x, preds, adv_x) # Predicted class of the generated adversary
             res = int(new_class_label == target)
 
-            if res==1 or res!=1:
-                adv_img_deprocessed = deprocess_image(adv_x)
-                imsave(store_path + '/adv_' + str(target) + '_' + str(current_class) + '_' + str(new_class_label) + '_.png', adv_img_deprocessed)
+            # if res==1 or res!=1:
+            adv_img_deprocessed = deprocess_image(adv_x)
+            imsave(store_path + '/adv_' + str(target) + '_'+ str(label) + '_' + str(current_class) + '_' + str(new_class_label) + '_.png', adv_img_deprocessed)
 
             # # Computer number of modified features
             # adv_x_reshape = adv_x.reshape(-1)
@@ -213,49 +215,49 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
 
     # Generate random matution matrix for mutations
 
-    # [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test('/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/cifar10_adv_jsma')
-    # img_rows = 28
-    # img_cols = 28
-    # seed_number = len(predicted_labels)
-    # mutation_number = 1000
-    #
-    # mutation_test = MutationTest(img_rows, img_cols, seed_number, mutation_number)
-    # mutations = []
-    # for i in range(mutation_number):
-    #     mutation = mutation_test.mutation_matrix()
-    #     mutations.append(mutation)
-    #
-    # for step_size in [1,5,10]:
-    #
-    #     label_change_numbers = []
-    #     # Iterate over all the test data
-    #     for i in range(len(predicted_labels)):
-    #         ori_img = np.expand_dims(image_list[i], axis=2)
-    #         ori_img = ori_img.astype('float32')
-    #         ori_img /= 255
-    #         orig_label = predicted_labels[i]
-    #
-    #         label_changes = 0
-    #         for j in range(mutation_test.mutation_number):
-    #             img = ori_img.copy()
-    #             add_mutation = mutations[j][0]
-    #             mu_img = img + add_mutation * step_size
-    #
-    #             # Predict the label for the mutation
-    #             mu_img = np.expand_dims(mu_img, 0)
-    #             # print(mu_img.shape)
-    #             # Define input placeholder
-    #             # input_x = tf.placeholder(tf.float32, shape=(None, 28, 28, 1))
-    #
-    #             mu_label = model_argmax(sess, x, preds, mu_img)
-    #             # print('Predicted label: ', mu_label)
-    #
-    #             if mu_label != orig_label:
-    #                 label_changes += 1
-    #
-    #         label_change_numbers.append(label_changes)
-    #
-    #     print('Number of label changes for step size: ' + str(step_size)+ ', '+ str(label_change_numbers))
+    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test('/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/cifar10_adv_jsma')
+    img_rows = 32
+    img_cols = 32
+    seed_number = len(predicted_labels)
+    mutation_number = 1000
+
+    mutation_test = MutationTest(img_rows, img_cols, seed_number, mutation_number)
+    mutations = []
+    for i in range(mutation_number):
+        mutation = mutation_test.mutation_matrix()
+        mutations.append(mutation)
+
+    for step_size in [1,5,10]:
+
+        label_change_numbers = []
+        # Iterate over all the test data
+        for i in range(len(predicted_labels)):
+            ori_img = preprocess_image(image_list[i].astype('float64'))
+            orig_label = predicted_labels[i]
+
+            label_changes = 0
+            for j in range(mutation_test.mutation_number):
+                img = ori_img.copy()
+                add_mutation = mutations[j][0]
+                mu_img = img + add_mutation * step_size
+                # print("----------------------------------------")
+                # print(add_mutation)
+
+                # Predict the label for the mutation
+                mu_img = np.expand_dims(mu_img, 0)
+                # print(mu_img.shape)
+                # Define input placeholder
+                # input_x = tf.placeholder(tf.float32, shape=(None, 28, 28, 1))
+
+                mu_label = model_argmax(sess, x, preds, mu_img)
+                # print('Predicted label: ', mu_label)
+
+                if mu_label != orig_label:
+                    label_changes += 1
+
+            label_change_numbers.append(label_changes)
+
+        print('Number of label changes for step size: ' + str(step_size)+ ', '+ str(label_change_numbers))
 
     # # Compute the number of adversarial examples that were successfully found
     # nb_targets_tried = ((nb_classes - 1) * source_samples)
@@ -301,9 +303,9 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    flags.DEFINE_boolean('trained', True, 'The model is already trained.')  #default:False
+    flags.DEFINE_boolean('trained', False, 'The model is already trained.')  #default:False
     flags.DEFINE_boolean('viz_enabled', True, 'Visualize adversarial ex.')
-    flags.DEFINE_integer('nb_epochs', 6, 'Number of epochs to train model')
+    flags.DEFINE_integer('nb_epochs', 300, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')
     flags.DEFINE_integer('nb_classes', 10, 'Number of output classes')
     flags.DEFINE_integer('source_samples', 10, 'Nb of test inputs to attack')

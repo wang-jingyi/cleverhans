@@ -138,6 +138,19 @@ class ReLU(Layer):
     def fprop(self, x):
         return tf.nn.relu(x)
 
+class Lrn(Layer):
+
+    def __init__(self, depth_radius, bias, alpha, beta):
+        self.__dict__.update(locals())
+        del self.self
+
+    def set_input_shape(self, shape):
+        self.input_shape = shape
+        self.output_shape = shape
+
+    def fprop(self, x):
+        return tf.nn.lrn(x, depth_radius=self.depth_radius, bias=self.bias, alpha=self.alpha, beta=self.beta)
+
 
 class Softmax(Layer):
 
@@ -184,7 +197,7 @@ def make_basic_cnn(nb_filters=64, nb_classes=10,
     model = MLP(layers, input_shape)
     return model
 
-def make_basic_cnn1(nb_filters=64, nb_classes=10,
+def make_basic_cnn_cifar10(nb_filters=64, nb_classes=10,
                    input_shape=(None, 32, 32, 3)):
     layers = [Conv2D(int(nb_filters/2), (5, 5), (1, 1), "SAME"),
               ReLU(),

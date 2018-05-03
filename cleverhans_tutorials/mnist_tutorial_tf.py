@@ -16,6 +16,7 @@ import tensorflow as tf
 from tensorflow.python.platform import flags
 import logging
 from scipy.misc import imsave
+import math
 
 import os
 import random
@@ -36,7 +37,7 @@ import os
 FLAGS = flags.FLAGS
 
 
-def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
+def mnist_tutorial(trained = True, mutated = True, train_start=0, train_end=60000, test_start=0,
                    test_end=10000, nb_epochs=6, batch_size=128,
                    learning_rate=0.001,
                    clean_train=True,
@@ -95,14 +96,13 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
     x = tf.placeholder(tf.float32, shape=(None, 28, 28, 1))
     y = tf.placeholder(tf.float32, shape=(None, 10))
 
-    model_path = "models/mnist"
     # Train an MNIST model
     train_params = {
         'nb_epochs': nb_epochs,
         'batch_size': batch_size,
         'learning_rate': learning_rate,
-        'train_dir': 'model',
-        'filename': 'fgsm_1.model'
+        'train_dir': 'mnist_tf/model',
+        'filename': 'fgsm1.model'
     }
     fgsm_params = {'eps': 0.3,
                    'clip_min': 0.,
@@ -144,46 +144,54 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
         adv_x = fgsm.generate(x, **fgsm_params)
         preds_adv = model.get_probs(adv_x)
 
-        index = random.randint(test_start, test_end - attack_num)
+        # index = random.randint(test_start, test_end - attack_num)
+        index = 0
         adv= sess.run(adv_x,feed_dict={x: X_test[index: index + attack_num], y: Y_test[index: index + attack_num]})
 
-        store_path = './adv_fgsm1'
+        store_path = './mnist_tf/adv_fgsm1'
         if not os.path.exists(store_path):
             os.makedirs(store_path)
 
         labels = np.argmax(Y_test[index: index + attack_num], axis=1)
         new_class_labels = model_argmax(sess, x, preds, adv)
         for i in range(len(adv)):
-            if labels[i] != new_class_labels[i]:
-                adv_img_deprocessed = utils.deprocess_image(np.asarray([adv[i]]))
-                imsave(store_path + '/' + str(i) +'adv_' + str(labels[i]) + '_' + str(
-                    new_class_labels[i]) + '_.png', adv_img_deprocessed)
+            # if labels[i] != new_class_labels[i]:
+            adv_img_deprocessed = utils.deprocess_image(np.asarray([adv[i]]))
+            imsave(store_path + '/adv_' + str(i) + '_' + str(labels[i]) + '_' + str(
+                new_class_labels[i]) + '_.png', adv_img_deprocessed)
 
-        [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test(
-            '/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/adv_fgsm1')
+        path = './mnist_tf'
+        result = ''
+
+        [image_list, image_files, real_labels, predicted_labels] = utils.get_data_mutation_test(store_path)
         img_rows = 28
         img_cols = 28
-        seed_number = len(predicted_labels)
+        seed_number = len(image_list)
         mutation_number = 1000
 
         mutation_test = MutationTest(img_rows, img_cols, seed_number, mutation_number)
         mutations = []
-        for i in range(mutation_number):
-            mutation = mutation_test.mutation_matrix()
-            mutations.append(mutation)
+        if mutated:
+            mutations = np.load(path + "/mutation_list.npy")
+        else:
+            for i in range(mutation_number):
+                mutation = mutation_test.mutation_matrix()
+                mutations.append(mutation)
+            np.save(path + "/mutation_list.npy", mutations)
 
+        store_string = ''
         for step_size in [1, 5, 10]:
 
             label_change_numbers = []
             # Iterate over all the test data
-            for i in range(len(predicted_labels)):
+            for i in range(len(image_list)):
                 ori_img = np.expand_dims(image_list[i], axis=2)
                 ori_img = ori_img.astype('float32')
                 ori_img /= 255
                 orig_label = predicted_labels[i]
 
                 label_changes = 0
-                for j in range(mutation_test.mutation_number):
+                for j in range(mutation_number):
                     img = ori_img.copy()
                     add_mutation = mutations[j][0]
                     mu_img = img + add_mutation * step_size
@@ -197,26 +205,86 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
                     mu_label = model_argmax(sess, x, preds, mu_img)
                     # print('Predicted label: ', mu_label)
 
-                    if mu_label != orig_label:
+                    if mu_label != int(orig_label):
                         label_changes += 1
 
                 label_change_numbers.append(label_changes)
+                store_string = store_string + image_files[i] + "," + str(step_size) + "," + str(label_changes) + "\n"
 
-            print('Number of label changes for step size: ' + str(step_size) + ', ' + str(label_change_numbers))
+            label_change_numbers = np.asarray(label_change_numbers)
+            adv_average = round(np.mean(label_change_numbers), 2)
+            adv_std = np.std(label_change_numbers)
+            adv_95ci = round(1.96 * adv_std / math.sqrt(len(label_change_numbers)), 2)
+            result = result + 'adv,' + str(step_size) + ',' + str(adv_average) + ',' + str(
+                round(adv_std, 2)) + ',' + str(adv_95ci) + '\n'
 
+            # print('Number of label changes for step size: ' + str(step_size) + ', ' + str(label_change_numbers))
+        with open(path + "/adv_fgsm1_result.csv", "w") as f:
+            f.write(store_string)
 
-        # # Evaluate the accuracy of the MNIST model on adversarial examples
-        # eval_par = {'batch_size': batch_size}
-        # acc = model_eval(sess, x, y, preds_adv, X_test, Y_test, args=eval_par)
-        # print('Test accuracy on adversarial examples: %0.4f\n' % acc)
-        # report.clean_train_adv_eval = acc
+        store_path = './mnist_tf/ori_tf'
+        if not os.path.exists(store_path):
+            os.makedirs(store_path)
 
-        # # Calculate training error
-        # if testing:
-        #     eval_par = {'batch_size': batch_size}
-        #     acc = model_eval(sess, x, y, preds_adv, X_train,
-        #                      Y_train, args=eval_par)
-        #     report.train_clean_train_adv_eval = acc
+        choice = []
+        image_list = []
+        predicted_labels = []
+        real_labels = []
+        while len(choice) != 500:
+            index = random.randint(0, len(X_test) - 1)
+            if index not in choice:
+                choice.append(index)
+                image_list.append(X_test[index])
+                real_labels.append(Y_test[index])
+
+        np.save(store_path + '/ori_x.npy', np.asarray(image_list))
+        np.save(store_path + '/ori_y.npy', np.asarray(real_labels))
+
+        image_list = np.load(store_path + '/ori_x.npy')
+        real_labels = np.load(store_path + '/ori_y.npy')
+        seed_number = len(image_list)
+        mutation_number = 1000
+
+        store_string = ''
+        for step_size in [1, 5, 10]:
+
+            label_change_numbers = []
+            # Iterate over all the test data
+            for i in range(len(image_list)):
+                ori_img = image_list[i]
+                orig_label = model_argmax(sess, x, preds, np.asarray([image_list[i]]))
+
+                label_changes = 0
+                for j in range(mutation_number):
+                    img = ori_img.copy()
+                    add_mutation = mutations[j][0]
+                    mu_img = img + add_mutation * step_size
+
+                    # Predict the label for the mutation
+                    mu_img = np.expand_dims(mu_img, 0)
+
+                    mu_label = model_argmax(sess, x, preds, mu_img)
+                    # print('Predicted label: ', mu_label)
+
+                    if mu_label != int(orig_label):
+                        label_changes += 1
+
+                label_change_numbers.append(label_changes)
+                store_string = store_string + str(i) + "," + str(step_size) + "," + str(label_changes) + "\n"
+
+            label_change_numbers = np.asarray(label_change_numbers)
+            adv_average = round(np.mean(label_change_numbers), 2)
+            adv_std = np.std(label_change_numbers)
+            adv_95ci = round(1.96 * adv_std / math.sqrt(len(label_change_numbers)), 2)
+            result = result + 'ori,' + str(step_size) + ',' + str(adv_average) + ',' + str(
+                round(adv_std, 2)) + ',' + str(adv_95ci) + '\n'
+            # print('Number of label changes for step size: ' + str(step_size)+ ', '+ str(label_change_numbers))
+
+        with open(path + "/ori_fgsm1_result.csv", "w") as f:
+            f.write(store_string)
+
+        with open(path + "/fgsm1_result.csv", "w") as f:
+            f.write(result)
 
         print("Repeating the process, using adversarial training")
     # Redefine TF model graph
@@ -249,7 +317,7 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
         report.adv_train_adv_eval = accuracy
 
     # Perform and evaluate adversarial training
-    train_params['filename'] = 'fgsm_2.model'
+    train_params['filename'] = 'fgsm2.model'
     if trained:
         saver = tf.train.Saver()
         saver.restore(
@@ -260,44 +328,37 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
                    predictions_adv=preds_2_adv, evaluate=evaluate_2,
                     args=train_params, rng=rng,save=True)
 
+    index = 0
     adv2 = sess.run(adv_x_2, feed_dict={x: X_test[index: index + attack_num], y: Y_test[index: index + attack_num]})
 
-    store_path = './adv_fgsm2'
+    store_path = './mnist_tf/adv_fgsm2'
     if not os.path.exists(store_path):
         os.makedirs(store_path)
 
     new_class_labels = model_argmax(sess, x, preds_2, adv2)
     for i in range(len(adv2)):
-        if labels[i] != new_class_labels[i]:
-            adv_img_deprocessed = utils.deprocess_image(np.asarray([adv2[i]]))
-            imsave(store_path + '/' + str(i) + 'adv_' + str(labels[i]) + '_' + str(
-                new_class_labels[i]) + '_.png', adv_img_deprocessed)
+        # if labels[i] != new_class_labels[i]:
+        adv_img_deprocessed = utils.deprocess_image(np.asarray([adv2[i]]))
+        imsave(store_path + '/adv_' + str(i) + '_' + str(labels[i]) + '_' + str(
+            new_class_labels[i]) + '_.png', adv_img_deprocessed)
 
-    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test(
-        '/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/adv_fgsm2')
-    # img_rows = 28
-    # img_cols = 28
-    # seed_number = len(predicted_labels)
-    # mutation_number = 1000
-    #
-    # mutation_test = MutationTest(img_rows, img_cols, seed_number, mutation_number)
-    # mutations = []
-    # for i in range(mutation_number):
-    #     mutation = mutation_test.mutation_matrix()
-    #     mutations.append(mutation)
+    result = ''
 
+    [image_list, image_files, real_labels, predicted_labels] = utils.get_data_mutation_test(store_path)
+
+    store_string = ''
     for step_size in [1, 5, 10]:
 
         label_change_numbers = []
         # Iterate over all the test data
-        for i in range(len(predicted_labels)):
+        for i in range(len(image_list)):
             ori_img = np.expand_dims(image_list[i], axis=2)
             ori_img = ori_img.astype('float32')
             ori_img /= 255
             orig_label = predicted_labels[i]
 
             label_changes = 0
-            for j in range(mutation_test.mutation_number):
+            for j in range(mutation_number):
                 img = ori_img.copy()
                 add_mutation = mutations[j][0]
                 mu_img = img + add_mutation * step_size
@@ -311,28 +372,75 @@ def mnist_tutorial(trained = True, train_start=0, train_end=60000, test_start=0,
                 mu_label = model_argmax(sess, x, preds, mu_img)
                 # print('Predicted label: ', mu_label)
 
-                if mu_label != orig_label:
+                if mu_label != int(orig_label):
                     label_changes += 1
 
             label_change_numbers.append(label_changes)
+            store_string = store_string + image_files[i] + "," + str(step_size) + "," + str(label_changes) + "\n"
 
-        print('Number of label changes for step size: ' + str(step_size) + ', ' + str(label_change_numbers))
+        label_change_numbers = np.asarray(label_change_numbers)
+        adv_average = round(np.mean(label_change_numbers), 2)
+        adv_std = np.std(label_change_numbers)
+        adv_95ci = round(1.96 * adv_std / math.sqrt(len(label_change_numbers)), 2)
+        result = result + 'adv,' + str(step_size) + ',' + str(adv_average) + ',' + str(
+            round(adv_std, 2)) + ',' + str(adv_95ci) + '\n'
 
-    # # Calculate training errors
-    # if testing:
-    #     eval_params = {'batch_size': batch_size}
-    #     accuracy = model_eval(sess, x, y, preds_2, X_train, Y_train,
-    #                           args=eval_params)
-    #     report.train_adv_train_clean_eval = accuracy
-    #     accuracy = model_eval(sess, x, y, preds_2_adv, X_train,
-    #                           Y_train, args=eval_params)
-    #     report.train_adv_train_adv_eval = accuracy
+        # print('Number of label changes for step size: ' + str(step_size) + ', ' + str(label_change_numbers))
+    with open(path + "/adv_fgsm2_result.csv", "w") as f:
+        f.write(store_string)
 
+    store_path = './mnist_tf/ori_tf'
+    image_list = np.load(store_path + '/ori_x.npy')
+    real_labels = np.load(store_path + '/ori_y.npy')
+    seed_number = len(image_list)
+    mutation_number = 1000
+
+    store_string = ''
+    for step_size in [1, 5, 10]:
+
+        label_change_numbers = []
+        # Iterate over all the test data
+        for i in range(len(image_list)):
+            ori_img = image_list[i]
+            orig_label = model_argmax(sess, x, preds, np.asarray([image_list[i]]))
+
+            label_changes = 0
+            for j in range(mutation_number):
+                img = ori_img.copy()
+                add_mutation = mutations[j][0]
+                mu_img = img + add_mutation * step_size
+
+                # Predict the label for the mutation
+                mu_img = np.expand_dims(mu_img, 0)
+
+                mu_label = model_argmax(sess, x, preds, mu_img)
+                # print('Predicted label: ', mu_label)
+
+                if mu_label != int(orig_label):
+                    label_changes += 1
+
+            label_change_numbers.append(label_changes)
+            store_string = store_string + str(i) + "," + str(step_size) + "," + str(label_changes) + "\n"
+
+        label_change_numbers = np.asarray(label_change_numbers)
+        adv_average = round(np.mean(label_change_numbers), 2)
+        adv_std = np.std(label_change_numbers)
+        adv_95ci = round(1.96 * adv_std / math.sqrt(len(label_change_numbers)), 2)
+        result = result + 'ori,' + str(step_size) + ',' + str(adv_average) + ',' + str(round(adv_std, 2)) + ',' + str(
+            adv_95ci) + '\n'
+        # print('Number of label changes for step size: ' + str(step_size)+ ', '+ str(label_change_numbers))
+
+    with open(path + "/ori_fgsm2_result.csv", "w") as f:
+        f.write(store_string)
+
+    with open(path + "/fgsm2_result.csv", "w") as f:
+        f.write(result)
     return report
 
 
 def main(argv=None):
     mnist_tutorial(trained = FLAGS.trained,
+                   mutated=FLAGS.mutated,
                    attack_num = FLAGS.attack_num,
                    nb_epochs=FLAGS.nb_epochs, batch_size=FLAGS.batch_size,
                    learning_rate=FLAGS.learning_rate,
@@ -343,7 +451,8 @@ def main(argv=None):
 
 if __name__ == '__main__':
     flags.DEFINE_boolean('trained', False, 'The model is already trained.')  # default:False
-    flags.DEFINE_integer('attack_num', 100, 'The number of original data to attack.')
+    flags.DEFINE_boolean('mutated', False, 'The mutation list is already generate.')  # default:False
+    flags.DEFINE_integer('attack_num', 500, 'The number of original data to attack.')
     flags.DEFINE_integer('nb_filters', 64, 'Model size multiplier')
     flags.DEFINE_integer('nb_epochs', 6, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')

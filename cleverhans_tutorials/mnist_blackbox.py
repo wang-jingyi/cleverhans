@@ -20,6 +20,7 @@ import os
 import sys
 sys.path.append('/Users/pxzhang/Documents/SUTD/project/deepxplore')
 import random
+import math
 from scipy.misc import imsave
 
 from MNIST_mine import utils
@@ -81,7 +82,7 @@ def prep_bbox(trained, sess, x, y, X_train, Y_train, X_test, Y_test,
         'nb_epochs': nb_epochs,
         'batch_size': batch_size,
         'learning_rate': learning_rate,
-        'train_dir': 'model',
+        'train_dir': 'mnist_bb/model',
         'filename': 'blackbox.model'
     }
 
@@ -163,7 +164,7 @@ def train_sub(trained, sess, x, y, bbox_preds, X_sub, Y_sub, nb_classes,
             'nb_epochs': nb_epochs_s,
             'batch_size': batch_size,
             'learning_rate': learning_rate,
-            'train_dir': 'model',
+            'train_dir': 'mnist_bb/model',
             'filename': 'substitute.model'
         }
         with TemporaryLogLevel(logging.WARNING, "cleverhans.utils.tf"):
@@ -200,7 +201,7 @@ def train_sub(trained, sess, x, y, bbox_preds, X_sub, Y_sub, nb_classes,
     return model_sub, preds_sub
 
 
-def mnist_blackbox(trained = True, train_start=0, train_end=60000, test_start=0,
+def mnist_blackbox(trained = True, mutated = True, train_start=0, train_end=60000, test_start=0,
                    test_end=10000, nb_classes=10, batch_size=128,
                    learning_rate=0.001, nb_epochs=10, holdout=150, data_aug=6,
                    nb_epochs_s=10, lmbda=0.1,
@@ -279,46 +280,54 @@ def mnist_blackbox(trained = True, train_start=0, train_end=60000, test_start=0,
     eval_params = {'batch_size': batch_size}
     x_adv_sub = fgsm.generate(x, **fgsm_par)
 
-    index = random.randint(0, len(Y_test) - attack_num)
+    # index = random.randint(0, len(Y_test) - attack_num)
+    index = 0
     adv = sess.run(x_adv_sub, feed_dict={x: X_test[index: index + attack_num], y: Y_test[index: index + attack_num]})
 
-    store_path = './adv_blackbox'
+    store_path = './mnist_bb/adv_blackbox'
     if not os.path.exists(store_path):
         os.makedirs(store_path)
 
     labels = np.argmax(Y_test[index: index + attack_num], axis=1)
     new_class_labels = model_argmax(sess, x, model(x), adv)
     for i in range(len(adv)):
-        if labels[i] != new_class_labels[i]:
-            adv_img_deprocessed = utils.deprocess_image(np.asarray([adv[i]]))
-            imsave(store_path + '/' + str(i) + 'adv_' + str(labels[i]) + '_' + str(
-                new_class_labels[i]) + '_.png', adv_img_deprocessed)
+        # if labels[i] != new_class_labels[i]:
+        adv_img_deprocessed = utils.deprocess_image(np.asarray([adv[i]]))
+        imsave(store_path + '/adv_' + str(i) + '_' + str(labels[i]) + '_' + str(
+            new_class_labels[i]) + '_.png', adv_img_deprocessed)
 
-    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test(
-        '/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/adv_blackbox')
+    path = './mnist_bb'
+    result = ''
+
+    [image_list, image_files, real_labels, predicted_labels] = utils.get_data_mutation_test(store_path)
     img_rows = 28
     img_cols = 28
-    seed_number = len(predicted_labels)
+    seed_number = len(image_list)
     mutation_number = 1000
 
     mutation_test = MutationTest(img_rows, img_cols, seed_number, mutation_number)
     mutations = []
-    for i in range(mutation_number):
-        mutation = mutation_test.mutation_matrix()
-        mutations.append(mutation)
+    if mutated:
+        mutations = np.load(path + "/mutation_list.npy")
+    else:
+        for i in range(mutation_number):
+            mutation = mutation_test.mutation_matrix()
+            mutations.append(mutation)
+        np.save(path + "/mutation_list.npy", mutations)
 
+    store_string = ''
     for step_size in [1, 5, 10]:
 
         label_change_numbers = []
         # Iterate over all the test data
-        for i in range(len(predicted_labels)):
+        for i in range(len(image_list)):
             ori_img = np.expand_dims(image_list[i], axis=2)
             ori_img = ori_img.astype('float32')
             ori_img /= 255
             orig_label = predicted_labels[i]
 
             label_changes = 0
-            for j in range(mutation_test.mutation_number):
+            for j in range(mutation_number):
                 img = ori_img.copy()
                 add_mutation = mutations[j][0]
                 mu_img = img + add_mutation * step_size
@@ -332,13 +341,86 @@ def mnist_blackbox(trained = True, train_start=0, train_end=60000, test_start=0,
                 mu_label = model_argmax(sess, x, model(x), mu_img)
                 # print('Predicted label: ', mu_label)
 
-                if mu_label != orig_label:
+                if mu_label != int(orig_label):
                     label_changes += 1
 
             label_change_numbers.append(label_changes)
+            store_string = store_string + image_files[i] + "," + str(step_size) + "," + str(label_changes) + "\n"
 
-        print('Number of label changes for step size: ' + str(step_size) + ', ' + str(label_change_numbers))
+        label_change_numbers = np.asarray(label_change_numbers)
+        adv_average = round(np.mean(label_change_numbers), 2)
+        adv_std = np.std(label_change_numbers)
+        adv_95ci = round(1.96 * adv_std / math.sqrt(len(label_change_numbers)), 2)
+        result = result + 'adv,' + str(step_size) + ',' + str(adv_average) + ',' + str(
+            round(adv_std, 2)) + ',' + str(adv_95ci) + '\n'
 
+        # print('Number of label changes for step size: ' + str(step_size) + ', ' + str(label_change_numbers))
+    with open(path + "/adv_result.csv", "w") as f:
+        f.write(store_string)
+
+    store_path = './mnist_bb/ori_blackbox'
+    if not os.path.exists(store_path):
+        os.makedirs(store_path)
+
+    choice = []
+    image_list = []
+    predicted_labels = []
+    real_labels = []
+    while len(choice) != 500:
+        index = random.randint(0, len(X_test) - 1)
+        if index not in choice:
+            choice.append(index)
+            image_list.append(X_test[index])
+            real_labels.append(Y_test[index])
+
+    np.save(store_path + '/ori_x.npy', np.asarray(image_list))
+    np.save(store_path + '/ori_y.npy', np.asarray(real_labels))
+
+    image_list = np.load(store_path + '/ori_x.npy')
+    real_labels = np.load(store_path + '/ori_y.npy')
+    seed_number = len(image_list)
+    mutation_number = 1000
+
+    store_string = ''
+    for step_size in [1, 5, 10]:
+
+        label_change_numbers = []
+        # Iterate over all the test data
+        for i in range(len(image_list)):
+            ori_img = image_list[i]
+            orig_label = model_argmax(sess, x, model(x), np.asarray([image_list[i]]))
+
+            label_changes = 0
+            for j in range(mutation_number):
+                img = ori_img.copy()
+                add_mutation = mutations[j][0]
+                mu_img = img + add_mutation * step_size
+
+                # Predict the label for the mutation
+                mu_img = np.expand_dims(mu_img, 0)
+
+                mu_label = model_argmax(sess, x, model(x), mu_img)
+                # print('Predicted label: ', mu_label)
+
+                if mu_label != int(orig_label):
+                    label_changes += 1
+
+            label_change_numbers.append(label_changes)
+            store_string = store_string + str(i) + "," + str(step_size) + "," + str(label_changes) + "\n"
+
+        label_change_numbers = np.asarray(label_change_numbers)
+        adv_average = round(np.mean(label_change_numbers), 2)
+        adv_std = np.std(label_change_numbers)
+        adv_95ci = round(1.96 * adv_std / math.sqrt(len(label_change_numbers)), 2)
+        result = result + 'ori,' + str(step_size) + ',' + str(adv_average) + ',' + str(
+            round(adv_std, 2)) + ',' + str(adv_95ci) + '\n'
+        # print('Number of label changes for step size: ' + str(step_size)+ ', '+ str(label_change_numbers))
+
+    with open(path + "/ori_result.csv", "w") as f:
+        f.write(store_string)
+
+    with open(path + "/result.csv", "w") as f:
+        f.write(result)
 
     # Evaluate the accuracy of the "black-box" model on adversarial examples
     accuracy = model_eval(sess, x, y, model(x_adv_sub), X_test, Y_test,
@@ -352,6 +434,7 @@ def mnist_blackbox(trained = True, train_start=0, train_end=60000, test_start=0,
 
 def main(argv=None):
     mnist_blackbox(trained = FLAGS.trained,
+                   mutated=FLAGS.mutated,
                    attack_num=FLAGS.attack_num,
                    nb_classes=FLAGS.nb_classes, batch_size=FLAGS.batch_size,
                    learning_rate=FLAGS.learning_rate,
@@ -363,7 +446,8 @@ def main(argv=None):
 if __name__ == '__main__':
     # General flags
     flags.DEFINE_boolean('trained', False, 'The model is already trained.')  # default:False
-    flags.DEFINE_integer('attack_num', 100, 'The number of original data to attack.')
+    flags.DEFINE_boolean('mutated', False, 'The mutation list is already generate.')  # default:False
+    flags.DEFINE_integer('attack_num', 500, 'The number of original data to attack.')
     flags.DEFINE_integer('nb_classes', 10, 'Number of classes in problem')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')
     flags.DEFINE_float('learning_rate', 0.001, 'Learning rate for training')

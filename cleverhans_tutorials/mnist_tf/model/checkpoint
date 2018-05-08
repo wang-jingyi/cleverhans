@@ -1,2 +1,0 @@
-model_checkpoint_path: "fgsm2.model"
-all_model_checkpoint_paths: "fgsm2.model"

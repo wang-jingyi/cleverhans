@@ -251,8 +251,8 @@ def mnist_tutorial_jsma(trained = True, mutated = True, train_start=0, train_end
         label_change_numbers = np.asarray(label_change_numbers)
         adv_average = round(np.mean(label_change_numbers), 2)
         adv_std = np.std(label_change_numbers)
-        adv_95ci = round(1.96 * adv_std / math.sqrt(len(label_change_numbers)), 2)
-        result = result + 'adv,' + str(step_size) + ',' + str(adv_average) + ',' + str(round(adv_std, 2)) + ',' + str(adv_95ci) + '\n'
+        adv_99ci = round(2.576 * adv_std / math.sqrt(len(label_change_numbers)), 2)
+        result = result + 'adv,' + str(step_size) + ',' + str(adv_average) + ',' + str(round(adv_std, 2)) + ',' + str(adv_99ci) + '\n'
 
         # print('Number of label changes for step size: ' + str(step_size)+ ', '+ str(label_change_numbers))
 

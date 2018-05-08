@@ -31,6 +31,7 @@ from cleverhans.utils_cifar10 import data_cifar10, deprocess_image, preprocess_i
 from cleverhans.utils_tf import model_train, model_eval, model_argmax
 from cleverhans.utils_keras import KerasModelWrapper, cnn_model
 from cleverhans_tutorials.tutorial_models import make_basic_cnn_cifar10
+from os.path import expanduser
 
 FLAGS = flags.FLAGS
 
@@ -152,6 +153,7 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
     figure = None
 
     # Loop over the samples we want to perturb into adversarial examples
+    adv_count = 0
     for sample_ind in xrange(0, source_samples):
         print('--------------------------------------')
         print('Attacking input %i/%i' % (sample_ind + 1, source_samples))
@@ -183,11 +185,13 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
 
             # Check if success was achieved
             new_class_label = model_argmax(sess, x, preds, adv_x) # Predicted class of the generated adversary
-            res = int(new_class_label == target)
+            res = int(new_class_label != current_class)
 
-            # if res==1 or res!=1:
-            adv_img_deprocessed = deprocess_image(adv_x)
-            imsave(store_path + '/adv_' + str(target) + '_'+ str(label) + '_' + str(current_class) + '_' + str(new_class_label) + '_.png', adv_img_deprocessed)
+
+            if res==1:
+                adv_count += 1
+                adv_img_deprocessed = deprocess_image(adv_x)
+                imsave(store_path + '/adv_' + str(adv_count) + '_' + str(current_class) + '_' + str(new_class_label) + '.png', adv_img_deprocessed)
 
             # # Computer number of modified features
             # adv_x_reshape = adv_x.reshape(-1)
@@ -214,8 +218,8 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
     print('--------------------------------------')
 
     # Generate random matution matrix for mutations
-
-    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test('/Users/pxzhang/Documents/SUTD/project/cleverhans/cleverhans_tutorials/cifar10_adv_jsma')
+    home = expanduser("~")
+    [image_list, real_labels, predicted_labels] = utils.get_data_mutation_test(home + '/cleverhans/cleverhans_tutorials/cifar10_adv_jsma')
     img_rows = 32
     img_cols = 32
     seed_number = len(predicted_labels)
@@ -303,7 +307,7 @@ def main(argv=None):
 
 
 if __name__ == '__main__':
-    flags.DEFINE_boolean('trained', False, 'The model is already trained.')  #default:False
+    flags.DEFINE_boolean('trained', True, 'The model is already trained.')  #default:False
     flags.DEFINE_boolean('viz_enabled', True, 'Visualize adversarial ex.')
     flags.DEFINE_integer('nb_epochs', 300, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')

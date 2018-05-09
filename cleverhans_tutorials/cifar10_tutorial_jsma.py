@@ -103,7 +103,7 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
         'nb_epochs': nb_epochs,
         'batch_size': batch_size,
         'learning_rate': learning_rate,
-        'train_dir': 'cifar10_model',
+        'train_dir': 'cifar10_jsma/model',
         'filename': 'jsma.model'
     }
     if trained:
@@ -312,7 +312,7 @@ if __name__ == '__main__':
     flags.DEFINE_integer('nb_epochs', 300, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')
     flags.DEFINE_integer('nb_classes', 10, 'Number of output classes')
-    flags.DEFINE_integer('source_samples', 10, 'Nb of test inputs to attack')
+    flags.DEFINE_integer('source_samples', 100, 'Nb of test inputs to attack')
     flags.DEFINE_float('learning_rate', 0.001, 'Learning rate for training')
 
     tf.app.run()

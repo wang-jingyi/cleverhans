@@ -19,8 +19,7 @@ import math
 
 import logging
 import os
-import sys
-sys.path.append('/Users/pxzhang/Documents/SUTD/project/deepxplore')
+
 
 from MNIST_mine import utils
 from MNIST_mine.gen_mutation import MutationTest

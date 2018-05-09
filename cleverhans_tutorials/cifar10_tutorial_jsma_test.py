@@ -307,7 +307,7 @@ def main(argv=None):
 if __name__ == '__main__':
     flags.DEFINE_boolean('trained', False, 'The model is already trained.')  #default:False
     flags.DEFINE_boolean('viz_enabled', True, 'Visualize adversarial ex.')
-    flags.DEFINE_integer('nb_epochs', 150, 'Number of epochs to train model')
+    flags.DEFINE_integer('nb_epochs', 60, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')
     flags.DEFINE_integer('nb_classes', 10, 'Number of output classes')
     flags.DEFINE_integer('source_samples', 100, 'Nb of test inputs to attack')

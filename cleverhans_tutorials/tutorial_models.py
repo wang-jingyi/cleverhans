@@ -37,6 +37,7 @@ class MLP(Model):
             self.layer_names.append(name)
 
             layer.set_input_shape(input_shape)
+            print(input_shape)
             input_shape = layer.get_output_shape()
 
     def fprop(self, x, set_ref=False):
@@ -106,7 +107,7 @@ class Conv2D(Layer):
         return tf.nn.conv2d(x, self.kernels, (1,) + tuple(self.strides) + (1,),
                             self.padding) + self.b
 
-class Pooling(Layer):
+class MaxPooling(Layer):
 
     def __init__(self, ksize, strides, padding):
         self.__dict__.update(locals())
@@ -125,6 +126,26 @@ class Pooling(Layer):
 
     def fprop(self, x):
         return tf.nn.max_pool(x, (1,) + tuple(self.ksize) + (1,), (1,) + tuple(self.strides) + (1,), self.padding)
+
+class AvgPooling(Layer):
+
+    def __init__(self, ksize, strides, padding):
+        self.__dict__.update(locals())
+        del self.self
+
+    def set_input_shape(self, input_shape):
+        self.input_shape = input_shape
+        batch_size, rows, cols, input_channels = input_shape
+        input_shape = list(input_shape)
+        input_shape[0] = 1
+        dummy_batch = tf.zeros(input_shape)
+        dummy_output = self.fprop(dummy_batch)
+        output_shape = [int(e) for e in dummy_output.get_shape()]
+        output_shape[0] = batch_size
+        self.output_shape = tuple(output_shape)
+
+    def fprop(self, x):
+        return tf.nn.avg_pool(x, (1,) + tuple(self.ksize) + (1,), (1,) + tuple(self.strides) + (1,), self.padding)
 
 class ReLU(Layer):
 
@@ -151,7 +172,6 @@ class Lrn(Layer):
     def fprop(self, x):
         return tf.nn.lrn(x, depth_radius=self.depth_radius, bias=self.bias, alpha=self.alpha, beta=self.beta)
 
-
 class Softmax(Layer):
 
     def __init__(self):
@@ -164,6 +184,18 @@ class Softmax(Layer):
     def fprop(self, x):
         return tf.nn.softmax(x)
 
+class Dropout(Layer):
+
+    def __init__(self, keep_prob):
+        self.__dict__.update(locals())
+        del self.self
+
+    def set_input_shape(self, shape):
+        self.input_shape = shape
+        self.output_shape = shape
+
+    def fprop(self, x):
+        return tf.nn.dropout(x, self.keep_prob)
 
 class Flatten(Layer):
 
@@ -201,24 +233,44 @@ def make_basic_cnn_cifar10(nb_filters=64, nb_classes=10,
                    input_shape=(None, 32, 32, 3)):
     layers = [Conv2D(int(nb_filters/2), (5, 5), (1, 1), "SAME"),
               ReLU(),
-              Pooling((2, 2), (2, 2), "SAME"),
+              MaxPooling((2, 2), (2, 2), "SAME"),
               Conv2D(nb_filters, (5, 5), (1, 1), "SAME"),
               ReLU(),
-              Pooling((2, 2), (2, 2), "SAME"),
+              MaxPooling((2, 2), (2, 2), "SAME"),
               Flatten(),
               Linear(1024),
               ReLU(),
               Linear(nb_classes),
               Softmax()]
-    # layers = [Conv2D(nb_filters, (8, 8), (2, 2), "SAME"),
-    #           ReLU(),
-    #           Conv2D(nb_filters * 2, (6, 6), (2, 2), "VALID"),
-    #           ReLU(),
-    #           Conv2D(nb_filters * 2, (5, 5), (1, 1), "VALID"),
-    #           ReLU(),
-    #           Flatten(),
-    #           Linear(nb_classes),
-    #           Softmax()]
+
+    model = MLP(layers, input_shape)
+    return model
+
+def make_better_cnn_cifar10(nb_filters=64, nb_classes=10,
+                   input_shape=(None, 32, 32, 3)):
+    layers = [Conv2D(96, (3, 3), (1, 1), "SAME"),
+              ReLU(),
+              Dropout(0.2),
+              Conv2D(96, (3, 3), (1, 1), "SAME"),
+              ReLU(),
+              Conv2D(96, (3, 3), (2, 2), "SAME"),
+              ReLU(),
+              Dropout(0.5),
+              Conv2D(192, (3, 3), (1, 1), "SAME"),
+              ReLU(),
+              Conv2D(192, (3, 3), (1, 1), "SAME"),
+              ReLU(),
+              Conv2D(192, (3, 3), (2, 2), "SAME"),
+              ReLU(),
+              Dropout(0.5),
+              Conv2D(192, (3, 3), (1, 1), "SAME"),
+              ReLU(),
+              Conv2D(192, (1, 1), (1, 1), "VALID"),
+              ReLU(),
+              Conv2D(10, (1, 1), (1, 1), "VALID"),
+              AvgPooling((8,8), (8,8), "VALID"),#GlobalAveragePooling2D()
+              Flatten(),
+              Softmax()]
 
     model = MLP(layers, input_shape)
     return model

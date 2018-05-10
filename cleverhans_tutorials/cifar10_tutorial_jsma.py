@@ -30,7 +30,7 @@ from cleverhans.utils import pair_visual, grid_visual, AccuracyReport
 from cleverhans.utils_cifar10 import data_cifar10, deprocess_image, preprocess_image
 from cleverhans.utils_tf import model_train, model_eval, model_argmax
 from cleverhans.utils_keras import KerasModelWrapper, cnn_model
-from cleverhans_tutorials.tutorial_models import make_basic_cnn_cifar10
+from cleverhans_tutorials.tutorial_models import make_better_cnn_cifar10
 from os.path import expanduser
 
 FLAGS = flags.FLAGS
@@ -81,7 +81,7 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
     y = tf.placeholder(tf.float32, shape=(None, 10))
 
     # Define TF model graph
-    model = make_basic_cnn_cifar10()
+    model = make_better_cnn_cifar10()
     preds = model(x)
     print("Defined TensorFlow model graph.")
 
@@ -171,7 +171,7 @@ def cifar10_tutorial_jsma(trained = True, train_start=0, train_end=50000, test_s
             sample, (img_rows, img_cols, channels))
 
         # Loop over all target classes
-        store_path = './cifar10_adv_jsma'
+        store_path = './cifar10_jsma/adv_jsma'
         if not os.path.exists(store_path):
             os.makedirs(store_path)
         for target in target_classes:
@@ -312,7 +312,7 @@ if __name__ == '__main__':
     flags.DEFINE_integer('nb_epochs', 300, 'Number of epochs to train model')
     flags.DEFINE_integer('batch_size', 128, 'Size of training batches')
     flags.DEFINE_integer('nb_classes', 10, 'Number of output classes')
-    flags.DEFINE_integer('source_samples', 100, 'Nb of test inputs to attack')
+    flags.DEFINE_integer('source_samples', 150, 'Nb of test inputs to attack')
     flags.DEFINE_float('learning_rate', 0.001, 'Learning rate for training')
 
     tf.app.run()
